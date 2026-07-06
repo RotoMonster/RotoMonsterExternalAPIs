@@ -179,5 +179,99 @@ namespace RotoMonsterExternalAPIs.Client.Services
                 return results;
             }
         }
+
+        public async Task<RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult> GetGameWeatherV2Async(string teamName, DateTime easternDateTime, bool isRetractableRoof = false)
+        {
+            var coords = GetStadiumCoordinates(teamName);
+            if (coords == null)
+                return RotoMonsterExternalAPIs.Client.Models.Results.BaseResult.Failure<RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult>($"Stadium not found for team: {teamName}");
+
+            var hourlyData = await GetHourlyForecastAsync(coords.Latitude, coords.Longitude, easternDateTime, coords.CenterfieldDegrees);
+            if (hourlyData == null || hourlyData.Count == 0)
+                return RotoMonsterExternalAPIs.Client.Models.Results.BaseResult.Failure<RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult>("Could not retrieve weather data");
+
+            var hourlyForecasts = hourlyData.Select(h => new RotoMonsterExternalAPIs.Client.Models.Results.HourlyWeather
+            {
+                Hour = h.Hour,
+                Temperature = h.Temperature,
+                PercentChanceRain = h.PercentChanceRain,
+                ToWindField = h.WindField,
+                WindFieldDegrees = h.WindFieldDegrees,
+                WindSpeedLow = h.WindSpeedLow,
+                WindSpeedHigh = h.WindSpeedHigh,
+                Humidity = h.Humidity
+            }).ToList();
+
+            var (avgToWindSpeedLow, avgToWindSpeedHigh, avgToWindDirection, avgToWindField, avgHumidity) = CalculateWindAverages(hourlyData, coords.CenterfieldDegrees);
+            var avgTemp = hourlyData.Take(3).Average(h => h.Temperature);
+            var avgRainChance = hourlyData.Take(3).Average(h => h.PercentChanceRain);
+            var rainHours = hourlyData.Count(h => h.PercentChanceRain >= 30);
+
+            // Step 2: If retractable, calculate dome factor from temp, humidity, and rain
+            string domeFactor = null;
+            if (isRetractableRoof)
+            {
+                var avgRain3Hours_dome = hourlyData.Take(3).Average(h => h.PercentChanceRain);
+
+                if (avgTemp > 85 || avgHumidity > 70 || avgRain3Hours_dome >= 50)
+                    domeFactor = "high";
+                else if (avgRain3Hours_dome >= 25)
+                    domeFactor = "medium";
+                else
+                    domeFactor = "low";
+
+                if (domeFactor == "high")
+                {
+                    return new RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult
+                    {
+                        Success = true,
+                        DomeFactor = domeFactor,
+                        WindFactor = "none",
+                        PostponementFactor = "none",
+                        PostponementReason = null,
+                        HourlyForecasts = new List<RotoMonsterExternalAPIs.Client.Models.Results.HourlyWeather>(),
+                        AvgTemp = 0,
+                        AvgHumidity = 0
+                    };
+                }
+            }
+
+            // Step 3: Calculate wind factor from avg wind speed
+            var avgWindSpeed = (avgToWindSpeedLow + avgToWindSpeedHigh) / 2;
+            string windFactor;
+            if (avgWindSpeed >= 21) windFactor = "high";
+            else if (avgWindSpeed >= 11) windFactor = "medium";
+            else windFactor = "low";
+
+            // Step 4: Calculate postponement factor from avg rain % over first 3 hours
+            var first3Hours = hourlyData.Take(3).ToList();
+            var avgRain3Hours = first3Hours.Any() ? first3Hours.Average(h => h.PercentChanceRain) : 0;
+            string postponementFactor;
+            if (avgRain3Hours >= 75) postponementFactor = "high";
+            else if (avgRain3Hours >= 50) postponementFactor = "medium";
+            else if (avgRain3Hours >= 10) postponementFactor = "low";
+            else postponementFactor = "none";
+
+            return new RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult
+            {
+                Success = true,
+                DomeFactor = domeFactor,
+                WindFactor = windFactor,
+                PostponementFactor = postponementFactor,
+                PostponementReason = null,
+                AvgTemp = Math.Round(avgTemp, 1),
+                AvgHumidity = avgHumidity,
+                AvgRainChance = Math.Round(avgRainChance, 1),
+                RainHours = rainHours,
+                AvgToWindSpeedLow = avgToWindSpeedLow,
+                AvgToWindSpeedHigh = avgToWindSpeedHigh,
+                AvgToWindDirection = avgToWindDirection,
+                AvgToWindField = avgToWindField,
+                HourlyForecasts = hourlyForecasts,
+                InputTokens = 0,
+                OutputTokens = 0,
+                Cost = 0
+            };
+        }
     }
 }
