@@ -22,7 +22,7 @@ namespace RotoMonsterExternalAPIs.Client.Services
             try
             {
                 var weatherService = new WeatherService();
-                return await weatherService.GetGameWeatherV2Async(request.TeamName, request.EasternDateTime, request.IsRetractableRoof);
+                return await weatherService.GetGameWeatherV2Async(request.TeamName, request.EasternDateTime, request.IsRetractableRoof).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

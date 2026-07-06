@@ -186,7 +186,7 @@ namespace RotoMonsterExternalAPIs.Client.Services
             if (coords == null)
                 return RotoMonsterExternalAPIs.Client.Models.Results.BaseResult.Failure<RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult>($"Stadium not found for team: {teamName}");
 
-            var hourlyData = await GetHourlyForecastAsync(coords.Latitude, coords.Longitude, easternDateTime, coords.CenterfieldDegrees);
+            var hourlyData = await GetHourlyForecastAsync(coords.Latitude, coords.Longitude, easternDateTime, coords.CenterfieldDegrees).ConfigureAwait(false);
             if (hourlyData == null || hourlyData.Count == 0)
                 return RotoMonsterExternalAPIs.Client.Models.Results.BaseResult.Failure<RotoMonsterExternalAPIs.Client.Models.Results.GetGameWeatherResult>("Could not retrieve weather data");
 
