@@ -11,6 +11,14 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
     {
         public string Code { get; set; }
 
+        /// <summary>
+        /// A grouping the provider scopes its category ids by. Fantrax needs
+        /// this - the same category id means different things under different
+        /// groups, so an id alone can match the wrong category. Null for
+        /// providers whose ids are unique on their own, like Yahoo.
+        /// </summary>
+        public string GroupCode { get; set; }
+
         public string Name { get; set; }
 
         /// <summary>
