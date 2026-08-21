@@ -16,5 +16,18 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         public string Code { get; set; }
 
         public int Count { get; set; }
+
+        /// <summary>
+        /// A bench slot. Set by the provider, since only it knows that Yahoo
+        /// means BN and another provider means something else. Callers use it
+        /// to skip the slot when building their own active roster list.
+        /// </summary>
+        public bool IsBench { get; set; }
+
+        /// <summary>
+        /// An injury slot - Yahoo's IL, IR or DL. Counted into IRSpots rather
+        /// than into the active roster.
+        /// </summary>
+        public bool IsInjured { get; set; }
     }
 }

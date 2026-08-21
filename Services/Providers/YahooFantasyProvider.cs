@@ -298,12 +298,22 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 if (string.IsNullOrEmpty(code)) continue;
 
                 var count = Int(Value(posNode, "count"));
-                settings.RosterSpots.Add(new ProviderRosterSpot { Code = code, Count = count });
 
                 // Knowing that IL, IR and DL mean injured and BN means bench is
-                // Yahoo knowledge, so the totals are worked out here rather
-                // than left for every caller to redo.
-                if (code == "IL" || code == "IR" || code == "DL")
+                // Yahoo knowledge, so it is recorded here rather than left for
+                // every caller to work out from the code.
+                var isInjured = code == "IL" || code == "IR" || code == "DL";
+                var isBench = code == "BN";
+
+                settings.RosterSpots.Add(new ProviderRosterSpot
+                {
+                    Code = code,
+                    Count = count,
+                    IsBench = isBench,
+                    IsInjured = isInjured
+                });
+
+                if (isInjured)
                     settings.IRSpots += count;
                 else
                     settings.PlayersPerTeam += count;
