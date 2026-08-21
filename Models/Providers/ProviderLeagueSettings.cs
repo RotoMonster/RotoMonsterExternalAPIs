@@ -66,12 +66,14 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         /// Scoring categories in the provider's own codes. Mapping these to
         /// RM categories needs the database, so it stays with the caller.
         /// </summary>
-        public List<string> CategoryCodes { get; set; } = new List<string>();
+        public List<ProviderCategory> Categories { get; set; } = new List<ProviderCategory>();
 
         /// <summary>
-        /// Roster positions in the provider's own codes, one entry per slot,
-        /// so two outfield spots appear twice.
+        /// Roster positions and counts, including bench and injury slots.
+        /// PlayersPerTeam and IRSpots above are derived from these by the
+        /// provider, since knowing which codes mean bench or injured is
+        /// provider-specific.
         /// </summary>
-        public List<string> RosterSpotCodes { get; set; } = new List<string>();
+        public List<ProviderRosterSpot> RosterSpots { get; set; } = new List<ProviderRosterSpot>();
     }
 }
