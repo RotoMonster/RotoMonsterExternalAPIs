@@ -199,11 +199,10 @@ namespace RotoMonsterExternalAPIs.Client.Services.Yahoo
                         var failure = BaseResult.Failure<YahooTokenResult>(
                             "Yahoo returned " + (int)response.StatusCode + ": " + Truncate(body, 500));
 
-                        // invalid_grant means the code or refresh token is dead -
-                        // revoked, already used, or expired. Retrying cannot help;
-                        // the user has to authorize again.
-                        failure.NeedsReauthorization =
-                            body != null && body.IndexOf("invalid_grant", StringComparison.OrdinalIgnoreCase) >= 0;
+                        // A dead code or refresh token - revoked, already used,
+                        // expired, or issued by a different Yahoo app. Retrying
+                        // cannot help; the user has to authorize again.
+                        failure.NeedsReauthorization = IsDeadGrant(body);
 
                         return failure;
                     }
@@ -250,6 +249,29 @@ namespace RotoMonsterExternalAPIs.Client.Services.Yahoo
                     YahooGuid = ReadString(root, "xoauth_yahoo_guid")
                 };
             }
+        }
+
+        // Yahoo is not consistent about which of these it returns.
+        // INVALID_REFRESH_TOKEN comes back when the token was issued by another
+        // Yahoo app, which looks like an ordinary failure otherwise.
+        private static readonly string[] DeadGrantErrors =
+        {
+            "invalid_grant",
+            "INVALID_REFRESH_TOKEN",
+            "invalid_request"
+        };
+
+        private static bool IsDeadGrant(string body)
+        {
+            if (string.IsNullOrEmpty(body)) return false;
+
+            foreach (var error in DeadGrantErrors)
+            {
+                if (body.IndexOf(error, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
         }
 
         private static string ReadString(JsonElement root, string name)
