@@ -49,6 +49,37 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         }
 
         // -------------------------------------------------------------------
+        // Connecting an account
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Turns a Sleeper username into the user id everything else is keyed
+        /// on. The only call that takes a username rather than an id, and the
+        /// caller stores the result so it never has to run again.
+        ///
+        /// Sleeper answers an unknown username with a literal null rather than
+        /// a 404, which TryGet already treats as a failure.
+        /// </summary>
+        public static async Task<string> GetUserIdAsync(string username)
+        {
+            if (string.IsNullOrEmpty(username))
+                return null;
+
+            var response = await TryGet(BaseUrl + "user/" + Uri.EscapeDataString(username.Trim()))
+                .ConfigureAwait(false);
+
+            if (!response.Ok)
+                return null;
+
+            JsonElement root;
+            if (!TryParse(response.Body, out root) || root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var id = Str(root, "user_id");
+            return string.IsNullOrEmpty(id) ? null : id;
+        }
+
+        // -------------------------------------------------------------------
         // League list
         // -------------------------------------------------------------------
 
