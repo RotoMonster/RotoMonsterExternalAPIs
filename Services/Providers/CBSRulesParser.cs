@@ -209,18 +209,6 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 settings.ContinuousWaivers = !immediate;
             }
 
-            // Not on the settings model, but it is the difference between Ken's
-            // Multi and Single leagues, so it is worth not losing quietly.
-            // Callers that care can read it off LeagueType.
-            var eligibility = Get(pairs, "Player Eligibility");
-            if (eligibility.Length > 0)
-            {
-                settings.LeagueType =
-                    eligibility.IndexOf("multiple positions", StringComparison.OrdinalIgnoreCase) >= 0
-                        ? "multi-position"
-                        : "single-position";
-            }
-
             // "Your draft has not been set up." when there is nothing yet.
             var draftFormat = Get(pairs, "Draft Format");
             if (draftFormat.Length > 0)
