@@ -75,5 +75,12 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         /// provider-specific.
         /// </summary>
         public List<ProviderRosterSpot> RosterSpots { get; set; } = new List<ProviderRosterSpot>();
+
+        /// <summary>
+        /// Anything the provider could not express properly and the user
+        /// should know about, in plain words. The caller is expected to
+        /// show these, so they are written for a person rather than a log.
+        /// </summary>
+        public List<string> Notes { get; set; } = new List<string>();
     }
 }

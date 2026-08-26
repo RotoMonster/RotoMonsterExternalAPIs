@@ -101,30 +101,21 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             settings.IRSpots = injured;
             settings.PlayersPerTeam = total > 0 ? total : active + reserve;
 
-            // The position table is also four columns, but its rows are short
-            // position codes rather than the limit labels above.
-            foreach (var row in rows)
+            // CBS does not have a slot list. It has an active roster size and a
+            // maximum per position, and those maximums are mostly "No Limit" -
+            // Ken's Multi league is really "10 active players, any shape, with
+            // caps of G 5, F 5 and C 2".
+            //
+            // There is nowhere to put a cap, so the whole active roster becomes
+            // UTIL and the user is told to set the positions themselves. Half
+            // representing it would be worse than saying so.
+            if (active > 0)
             {
-                if (row.Count != 4) continue;
+                settings.RosterSpots.Add(new ProviderRosterSpot { Code = "UTIL", Count = active });
 
-                var code = row[0];
-                if (code.Length == 0 || code.Length > 4) continue;
-                if (LimitLabels.Contains(code, StringComparer.OrdinalIgnoreCase)) continue;
-                if (string.Equals(code, "Position", StringComparison.OrdinalIgnoreCase)) continue;
-                if (string.Equals(code, "Status", StringComparison.OrdinalIgnoreCase)) continue;
-
-                // CBS gives an active minimum and an active maximum rather than
-                // a slot count, and the minimums are usually zero. The maximum
-                // is the only real constraint, so that is what is carried over.
-                // "No Limit" means the position is uncapped, which we cannot
-                // express, so it is left out rather than invented.
-                var max = row[2];
-                if (max.IndexOf("No Limit", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-
-                var count = ToInt(max);
-                if (count <= 0) continue;
-
-                settings.RosterSpots.Add(new ProviderRosterSpot { Code = code, Count = count });
+                settings.Notes.Add(
+                    "CBS does not list fixed roster positions, so all " + active +
+                    " active spots were imported as UTIL. Edit the league to set your own positions.");
             }
 
             if (reserve > 0)
@@ -162,7 +153,12 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             {
                 if (row.Count != 3) continue;
                 if (row[0].Length == 0) continue;
-                if (string.Equals(row[0], "Stats", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // The header row is "Stats | Name | Settings" for basketball,
+                // but baseball splits the table and heads each half with
+                // "Batting" or "Pitching". The second cell is always "Name",
+                // which is the reliable thing to test.
+                if (string.Equals(row[1], "Name", StringComparison.OrdinalIgnoreCase)) continue;
 
                 var category = new ProviderCategory
                 {

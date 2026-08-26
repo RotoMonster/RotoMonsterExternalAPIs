@@ -125,9 +125,10 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         {
             var result = new GetProviderLeagueDataResult { Success = true };
 
-            // Rosters and drafts are not read yet, so the caller is told what
-            // it actually got rather than what it asked for.
-            result.PartsReturned = parts & ProviderLeagueDataParts.Settings;
+            // Drafts are still not read, so the caller is told what it
+            // actually got rather than what it asked for.
+            result.PartsReturned = parts &
+                (ProviderLeagueDataParts.Settings | ProviderLeagueDataParts.Rosters);
 
             if (leagueIds == null || leagueIds.Count == 0)
                 return result;
@@ -137,29 +138,54 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 var entry = new ProviderLeagueData { LeagueId = leagueId };
                 result.Leagues.Add(entry);
 
-                if ((parts & ProviderLeagueDataParts.Settings) == 0)
+                var wantsSettings = (parts & ProviderLeagueDataParts.Settings) != 0;
+                var wantsRosters = (parts & ProviderLeagueDataParts.Rosters) != 0;
+
+                if (!wantsSettings && !wantsRosters)
                     continue;
 
                 try
                 {
-                    var url = LeagueUrl(leagueId) + "/rules";
-                    var response = await Get(url, userKey).ConfigureAwait(false);
-                    result.RequestCount++;
-
-                    if (!response.Ok)
+                    if (wantsSettings)
                     {
-                        entry.ErrorMessage = response.Error;
-                        if (response.NeedsLogin) result.NeedsReauthorization = true;
-                        continue;
+                        var url = LeagueUrl(leagueId) + "/rules";
+                        var response = await Get(url, userKey).ConfigureAwait(false);
+                        result.RequestCount++;
+
+                        if (!response.Ok)
+                        {
+                            entry.ErrorMessage = response.Error;
+                            if (response.NeedsLogin) result.NeedsReauthorization = true;
+                            continue;
+                        }
+
+                        entry.Settings = CBSRulesParser.Parse(leagueId, response.Body);
+
+                        // An empty title means the page came back but was not
+                        // the rules page, which is worth reporting rather than
+                        // handing back settings full of defaults.
+                        if (string.IsNullOrEmpty(entry.Settings.Title))
+                            entry.ErrorMessage = "CBS did not return the rules page for this league.";
                     }
 
-                    entry.Settings = CBSRulesParser.Parse(leagueId, response.Body);
+                    if (wantsRosters)
+                    {
+                        var url = LeagueUrl(leagueId) + "/teams/roster-grid";
+                        var response = await Get(url, userKey).ConfigureAwait(false);
+                        result.RequestCount++;
 
-                    // An empty title means the page came back but was not the
-                    // rules page, which is worth reporting rather than handing
-                    // back settings full of defaults.
-                    if (string.IsNullOrEmpty(entry.Settings.Title))
-                        entry.ErrorMessage = "CBS did not return the rules page for this league.";
+                        if (!response.Ok)
+                        {
+                            entry.ErrorMessage = response.Error;
+                            if (response.NeedsLogin) result.NeedsReauthorization = true;
+                            continue;
+                        }
+
+                        // The grid does not say which team is the user's, and
+                        // the league list does not carry a team id either, so
+                        // IsMyTeam is left unset rather than guessed at.
+                        entry.Teams = CBSRosterGridParser.Parse(leagueId, response.Body, null);
+                    }
                 }
                 catch (Exception ex)
                 {
