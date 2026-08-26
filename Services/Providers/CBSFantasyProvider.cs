@@ -89,7 +89,10 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
 
                 foreach (var team in teams.EnumerateArray())
                 {
-                    var leagueId = LeagueIdFromUrl(Str(team, "url"));
+                    var url = Str(team, "url");
+                    if (!IsLeagueUrl(url)) continue;
+
+                    var leagueId = LeagueIdFromUrl(url);
                     if (string.IsNullOrEmpty(leagueId)) continue;
 
                     result.Leagues.Add(new ProviderLeague
@@ -203,6 +206,35 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         private string LeagueUrl(string leagueId)
         {
             return "https://" + leagueId + "." + _sport + ".cbssports.com";
+        }
+
+        /// <summary>
+        /// True for a real fantasy league in this sport.
+        ///
+        /// The list also carries pools and other products, which live on
+        /// picks.cbssports.com rather than a league subdomain. Those have no
+        /// rules page or roster grid, so importing one produces a league that
+        /// fails on everything.
+        /// </summary>
+        private bool IsLeagueUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+
+            // Anything with a path is not a league home page.
+            var host = url;
+            var scheme = host.IndexOf("://", StringComparison.Ordinal);
+            if (scheme >= 0) host = host.Substring(scheme + 3);
+
+            var slash = host.IndexOf('/');
+            if (slash >= 0)
+            {
+                var path = host.Substring(slash).Trim('/');
+                if (path.Length > 0) return false;
+
+                host = host.Substring(0, slash);
+            }
+
+            return host.EndsWith("." + _sport + ".cbssports.com", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
