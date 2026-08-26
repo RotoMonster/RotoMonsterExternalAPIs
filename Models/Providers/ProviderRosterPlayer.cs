@@ -13,6 +13,14 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
     {
         public string PlayerId { get; set; }
 
+        /// <summary>
+        /// A second id the provider knows this player by, tried when the
+        /// first matches nothing. Yahoo occasionally returns a player_id
+        /// we have no mapping for, and the id off editorial_player_key
+        /// does match. Empty for providers with one id scheme.
+        /// </summary>
+        public string AlternatePlayerId { get; set; }
+
         public string Name { get; set; }
 
         /// <summary>

@@ -466,6 +466,16 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 PlayerId = Value(playerNode, "player_id")
             };
 
+            // Yahoo sometimes hands back a player_id nothing maps to. The id on
+            // editorial_player_key does match, but only with the position type
+            // appended, so a batter is "12345B" rather than "12345".
+            var editorialKey = Value(playerNode, "editorial_player_key");
+            if (!string.IsNullOrEmpty(editorialKey))
+            {
+                var positionType = Value(playerNode, "position_type");
+                player.AlternatePlayerId = LastSegment(editorialKey) + positionType;
+            }
+
             var nameNode = playerNode.Element(Ns + "name");
             if (nameNode != null)
                 player.Name = Value(nameNode, "full");
