@@ -32,6 +32,12 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         /// </summary>
         private const int ChunkSize = 25;
 
+        /// <summary>
+        /// How far ahead rosters are asked for. See the comment where it is
+        /// used - it is about pending changes, not about the future.
+        /// </summary>
+        private const int RosterDaysAhead = 10;
+
         private static readonly XNamespace Ns =
             "http://fantasysports.yahooapis.com/fantasy/v2/base.rng";
 
@@ -167,8 +173,16 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
 
                 if (wantsRosters)
                 {
+                    // Dated deliberately into the future. Yahoo gives today's
+                    // rosters otherwise, which misses a change that has been
+                    // made but does not apply yet - tomorrow in a daily league,
+                    // next Monday in a weekly one. Ten days clears the next
+                    // period from any day of the week.
+                    var rosterDate = DateTime.Today.AddDays(RosterDaysAhead);
+
                     var url = BaseUrl + "leagues;league_keys=" + Keys(seasonKey, chunk)
-                              + "/teams/roster/players";
+                              + "/teams/roster/players"
+                              + rosterDate.ToString(";'date='yyyy-MM-dd", CultureInfo.InvariantCulture);
 
                     var response = await _client.GetAsync(userKey, url).ConfigureAwait(false);
                     result.RequestCount++;
