@@ -19,6 +19,14 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         Settings = 1,
         Rosters = 2,
         Drafts = 4,
+
+        /// <summary>
+        /// The players on the waiver wire. Kept out of All on purpose - it is
+        /// the most expensive part to fetch, since providers page it, and a
+        /// caller refreshing rosters rarely wants the whole wire as well.
+        /// </summary>
+        Waivers = 8,
+
         All = Settings | Rosters | Drafts
     }
 }

@@ -29,6 +29,13 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         public List<ProviderDraftPick> DraftPicks { get; set; }
 
         /// <summary>
+        /// Null unless Waivers was requested. Empty when nobody is on waivers,
+        /// and also empty where the provider was asked but the league has
+        /// continuous waivers - see the note on that in the Yahoo provider.
+        /// </summary>
+        public List<ProviderRosterPlayer> WaiverPlayers { get; set; }
+
+        /// <summary>
         /// Anything the provider refused or returned badly for this league
         /// alone. One league failing inside a batch should not fail the rest,
         /// so the failure is recorded here and the caller decides.

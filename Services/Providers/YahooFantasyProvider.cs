@@ -38,6 +38,15 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         /// </summary>
         private const int RosterDaysAhead = 10;
 
+        /// <summary>Yahoo caps a page of players at 25 whatever is asked for.</summary>
+        private const int WaiverPageSize = 25;
+
+        /// <summary>
+        /// A stop so a league with an unexpectedly long wire cannot page
+        /// forever. Well past a normal wire without being unlimited.
+        /// </summary>
+        private const int WaiverMaxPlayers = 1000;
+
         private static readonly XNamespace Ns =
             "http://fantasysports.yahooapis.com/fantasy/v2/base.rng";
 
@@ -132,6 +141,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             var wantsSettings = (parts & ProviderLeagueDataParts.Settings) != 0;
             var wantsDrafts = (parts & ProviderLeagueDataParts.Drafts) != 0;
             var wantsRosters = (parts & ProviderLeagueDataParts.Rosters) != 0;
+            var wantsWaivers = (parts & ProviderLeagueDataParts.Waivers) != 0;
 
             foreach (var chunk in Chunk(byId.Keys.ToList(), ChunkSize))
             {
@@ -170,6 +180,9 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                             MarkChunkFailed(byId, chunk, "Yahoo returned a response we could not read.");
                     }
                 }
+
+                if (wantsWaivers)
+                    await ReadWaivers(userKey, seasonKey, chunk, byId, result).ConfigureAwait(false);
 
                 if (wantsRosters)
                 {
@@ -469,6 +482,76 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                     }
 
                     data.Teams.Add(team);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The waiver wire, a page at a time.
+        ///
+        /// Same url as rosters with /players;status=W on the end. Yahoo caps a
+        /// page at 25 whatever count is asked for, so this walks until a short
+        /// page comes back.
+        ///
+        /// Skipped where the league has continuous waivers. Every player is on
+        /// waivers every night in those, so the answer would be the entire
+        /// player pool and paging it would cost dozens of calls to say nothing.
+        /// That means the settings have to be known, so a caller wanting
+        /// waivers should ask for Settings too.
+        /// </summary>
+        private async Task ReadWaivers(
+            string userKey,
+            string seasonKey,
+            IList<string> chunk,
+            Dictionary<string, ProviderLeagueData> byId,
+            GetProviderLeagueDataResult result)
+        {
+            foreach (var leagueId in chunk)
+            {
+                ProviderLeagueData entry;
+                if (!byId.TryGetValue(leagueId, out entry)) continue;
+
+                entry.WaiverPlayers = new List<ProviderRosterPlayer>();
+
+                if (entry.Settings != null && entry.Settings.ContinuousWaivers)
+                    continue;
+
+                var start = 0;
+
+                while (start < WaiverMaxPlayers)
+                {
+                    var url = BaseUrl + "league/" + seasonKey + ".l." + leagueId
+                              + "/players;status=W"
+                              + ";start=" + start.ToString(CultureInfo.InvariantCulture)
+                              + ";count=" + WaiverPageSize.ToString(CultureInfo.InvariantCulture);
+
+                    var response = await _client.GetAsync(userKey, url).ConfigureAwait(false);
+                    result.RequestCount++;
+
+                    XDocument doc;
+                    if (!response.Success || !TryParse(response.Content, out doc))
+                    {
+                        entry.ErrorMessage = response.Success
+                            ? "Yahoo returned a waiver list we could not read."
+                            : response.ErrorMessage;
+                        break;
+                    }
+
+                    var before = entry.WaiverPlayers.Count;
+
+                    foreach (var playerNode in doc.Descendants(Ns + "player"))
+                    {
+                        var player = ReadRosterPlayer(playerNode);
+                        if (!string.IsNullOrEmpty(player.PlayerId))
+                            entry.WaiverPlayers.Add(player);
+                    }
+
+                    var added = entry.WaiverPlayers.Count - before;
+
+                    // A short page is the end of the wire.
+                    if (added < WaiverPageSize) break;
+
+                    start += added;
                 }
             }
         }
