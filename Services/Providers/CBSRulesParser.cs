@@ -254,13 +254,21 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             settings.StartWeekday = ToWeekday(Get(pairs, "Periods Start"));
 
             // "Add/drops will process immediately." is the no waivers case.
+            // Anything else means there is a waiver period.
             var addDrop = Get(pairs, "Add/Drop Policy");
             if (addDrop.Length > 0)
             {
                 var immediate = addDrop.IndexOf("immediately", StringComparison.OrdinalIgnoreCase) >= 0;
                 settings.WaiverType = immediate ? "immediate" : "waivers";
-                settings.ContinuousWaivers = !immediate;
             }
+
+            // Deliberately not inferred. Continuous waivers means players sit
+            // on waivers every night rather than for a period after a drop,
+            // and CBS does not say either way - its Waiver Period row says how
+            // many days they stay on, which is the opposite of continuous.
+            // Guessing it from "not immediate" marked ordinary waiver leagues
+            // as continuous.
+            settings.WaiverRule = Get(pairs, "Waiver Period");
 
             // "Your draft has not been set up." when there is nothing yet.
             var draftFormat = Get(pairs, "Draft Format");
