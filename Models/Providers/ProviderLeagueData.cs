@@ -36,6 +36,12 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         public List<ProviderRosterPlayer> WaiverPlayers { get; set; }
 
         /// <summary>
+        /// Null unless Schedule was requested. Empty for a league that has no
+        /// schedule, which is every roto league.
+        /// </summary>
+        public List<ProviderMatchup> Matchups { get; set; }
+
+        /// <summary>
         /// Anything the provider refused or returned badly for this league
         /// alone. One league failing inside a batch should not fail the rest,
         /// so the failure is recorded here and the caller decides.

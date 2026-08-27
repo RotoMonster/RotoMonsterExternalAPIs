@@ -47,6 +47,16 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         /// </summary>
         private const int WaiverMaxPlayers = 1000;
 
+        /// <summary>How many weeks of schedule to ask for at a time.</summary>
+        private const int ScheduleWeekBlock = 10;
+
+        /// <summary>
+        /// A stop, well past the longest fantasy season. Yahoo returns nothing
+        /// for weeks that do not exist, so this only guards against a league
+        /// that somehow keeps answering.
+        /// </summary>
+        private const int ScheduleMaxWeeks = 30;
+
         private static readonly XNamespace Ns =
             "http://fantasysports.yahooapis.com/fantasy/v2/base.rng";
 
@@ -142,6 +152,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             var wantsDrafts = (parts & ProviderLeagueDataParts.Drafts) != 0;
             var wantsRosters = (parts & ProviderLeagueDataParts.Rosters) != 0;
             var wantsWaivers = (parts & ProviderLeagueDataParts.Waivers) != 0;
+            var wantsSchedule = (parts & ProviderLeagueDataParts.Schedule) != 0;
 
             foreach (var chunk in Chunk(byId.Keys.ToList(), ChunkSize))
             {
@@ -180,6 +191,9 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                             MarkChunkFailed(byId, chunk, "Yahoo returned a response we could not read.");
                     }
                 }
+
+                if (wantsSchedule)
+                    await ReadSchedule(userKey, seasonKey, chunk, byId, result).ConfigureAwait(false);
 
                 if (wantsWaivers)
                     await ReadWaivers(userKey, seasonKey, chunk, byId, result).ConfigureAwait(false);
@@ -483,6 +497,103 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
 
                     data.Teams.Add(team);
                 }
+            }
+        }
+
+        /// <summary>
+        /// The whole league's schedule.
+        ///
+        /// Ken's note points at /team/{key}.t.1/matchups, which is one team at
+        /// a time - twelve calls for a twelve team league. The scoreboard
+        /// endpoint gives every matchup in a week for the whole league, and
+        /// takes several weeks at once, so a season is a handful of calls.
+        ///
+        /// Weeks are asked for in blocks rather than all at once, because a
+        /// long list makes for a large response and Yahoo is not documented on
+        /// where its limit is.
+        /// </summary>
+        private async Task ReadSchedule(
+            string userKey,
+            string seasonKey,
+            IList<string> chunk,
+            Dictionary<string, ProviderLeagueData> byId,
+            GetProviderLeagueDataResult result)
+        {
+            foreach (var leagueId in chunk)
+            {
+                ProviderLeagueData entry;
+                if (!byId.TryGetValue(leagueId, out entry)) continue;
+
+                entry.Matchups = new List<ProviderMatchup>();
+
+                var week = 1;
+                while (week <= ScheduleMaxWeeks)
+                {
+                    var weeks = new List<string>();
+                    for (var w = week; w < week + ScheduleWeekBlock && w <= ScheduleMaxWeeks; w++)
+                        weeks.Add(w.ToString(CultureInfo.InvariantCulture));
+
+                    var url = BaseUrl + "league/" + seasonKey + ".l." + leagueId
+                              + "/scoreboard;week=" + string.Join(",", weeks.ToArray());
+
+                    var response = await _client.GetAsync(userKey, url).ConfigureAwait(false);
+                    result.RequestCount++;
+
+                    XDocument doc;
+                    if (!response.Success || !TryParse(response.Content, out doc))
+                    {
+                        // A schedule we cannot read is not worth failing the
+                        // rest of the league's data for.
+                        break;
+                    }
+
+                    var before = entry.Matchups.Count;
+                    ReadMatchupNodes(doc, leagueId, entry.Matchups);
+
+                    // Nothing back for a whole block means the season is
+                    // shorter than we asked for.
+                    if (entry.Matchups.Count == before) break;
+
+                    week += ScheduleWeekBlock;
+                }
+            }
+        }
+
+        private static void ReadMatchupNodes(XDocument doc, string leagueId, List<ProviderMatchup> into)
+        {
+            foreach (var matchupNode in doc.Descendants(Ns + "matchup"))
+            {
+                var teams = new List<string>();
+                foreach (var teamNode in matchupNode.Descendants(Ns + "team"))
+                {
+                    var id = Value(teamNode, "team_id");
+                    if (!string.IsNullOrEmpty(id))
+                        teams.Add(id);
+                }
+
+                // A matchup is two teams. Anything else is a bye or something
+                // we do not understand, and is left out either way.
+                if (teams.Count != 2) continue;
+
+                int week;
+                if (!int.TryParse(Value(matchupNode, "week"), out week)) continue;
+
+                // Yahoo says so outright rather than making us work it out from
+                // the week number.
+                var isPlayoff = Value(matchupNode, "is_playoffs") == "1";
+
+                into.Add(new ProviderMatchup
+                {
+                    LeagueId = leagueId,
+                    Period = week,
+
+                    // Yahoo does not mark home and away in a fantasy matchup,
+                    // so the order they arrive in is used and is at least
+                    // stable between calls.
+                    AwayTeamId = teams[0],
+                    HomeTeamId = teams[1],
+                    IsPlayoff = isPlayoff
+                });
             }
         }
 

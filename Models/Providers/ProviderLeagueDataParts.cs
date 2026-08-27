@@ -27,6 +27,13 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         /// </summary>
         Waivers = 8,
 
+        /// <summary>
+        /// Who plays who, by period. Out of All alongside Waivers - a schedule
+        /// does not change once it is set, so refetching it with every roster
+        /// refresh is wasted.
+        /// </summary>
+        Schedule = 16,
+
         All = Settings | Rosters | Drafts
     }
 }
