@@ -101,20 +101,32 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             settings.IRSpots = injured;
             settings.PlayersPerTeam = total > 0 ? total : active + reserve;
 
-            // CBS does not have a slot list. It has an active roster size and a
-            // maximum per position, and those maximums are mostly "No Limit" -
-            // Ken's Multi league is really "10 active players, any shape, with
-            // caps of G 5, F 5 and C 2".
-            //
-            // There is nowhere to put a cap, so the whole active roster becomes
-            // UTIL and the user is told to set the positions themselves. Half
-            // representing it would be worse than saying so.
-            if (active > 0)
+            // Some CBS leagues do list fixed positions and some do not, so the
+            // positions table decides which. Mifflin A.L. Baseball is a real
+            // slot list - C 2, 1B 1, MI 1, OF 5, P 9 and so on, summing to its
+            // 23 active players. Ken's Multi league is the other kind, where
+            // the caps read "No Limit" and the roster is really "10 active
+            // players, any shape".
+            var slots = ReadPositionSlots(rows);
+            var slotTotal = slots.Sum(slot => slot.Count);
+
+            // Only trusted when the slots account for the active roster
+            // exactly. A partial list would quietly import the wrong shape,
+            // which is worse than falling back.
+            if (slots.Count > 0 && (active <= 0 || slotTotal == active))
             {
+                foreach (var slot in slots)
+                    settings.RosterSpots.Add(slot);
+            }
+            else if (active > 0)
+            {
+                // Nothing to represent a cap with, so the whole active roster
+                // becomes UTIL and the user is told to set the positions
+                // themselves. Half representing it would be worse than saying so.
                 settings.RosterSpots.Add(new ProviderRosterSpot { Code = "UTIL", Count = active });
 
                 settings.Notes.Add(
-                    "CBS does not list fixed roster positions, so all " + active +
+                    "CBS does not list fixed roster positions for this league, so all " + active +
                     " active spots were imported as UTIL. Edit the league to set your own positions.");
             }
 
@@ -133,6 +145,51 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                     Count = injured,
                     IsInjured = true
                 });
+        }
+
+        /// <summary>
+        /// Reads the fixed position slots off the positions table, which is
+        /// four columns - position, active min, active max, roster total.
+        /// A league with real slots has min equal to max on every row. Where
+        /// the two disagree, or a cap reads "No Limit", there is no fixed
+        /// shape to import and this hands back nothing so the caller falls
+        /// back to UTIL.
+        /// </summary>
+        private static List<ProviderRosterSpot> ReadPositionSlots(List<List<string>> rows)
+        {
+            var slots = new List<ProviderRosterSpot>();
+            var started = false;
+
+            foreach (var row in rows)
+            {
+                if (row.Count != 4) continue;
+
+                // The limits table above this one is also four columns, so the
+                // header is what marks the start rather than the shape.
+                if (string.Equals(row[0], "Position", StringComparison.OrdinalIgnoreCase))
+                {
+                    started = true;
+                    continue;
+                }
+
+                if (!started) continue;
+                if (row[0].Length == 0) continue;
+
+                int min, max;
+                if (!int.TryParse(row[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out min))
+                    break;
+                if (!int.TryParse(row[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out max))
+                    break;
+
+                // A range rather than a slot count, so the league has no fixed
+                // shape and none of the rows can be trusted.
+                if (min != max || max <= 0)
+                    return new List<ProviderRosterSpot>();
+
+                slots.Add(new ProviderRosterSpot { Code = row[0], Count = max });
+            }
+
+            return slots;
         }
 
         // -------------------------------------------------------------------
