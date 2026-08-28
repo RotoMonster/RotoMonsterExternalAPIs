@@ -60,6 +60,21 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
 
         public bool ContinuousWaivers { get; set; }
 
+        /// <summary>
+        /// How many days a dropped player sits on waivers before anyone
+        /// can claim them. Zero where the provider does not say.
+        /// </summary>
+        public int WaiverPeriodDays { get; set; }
+
+        /// <summary>
+        /// The days of the week waivers actually process on, as
+        /// DayOfWeek values. A league running them daily lists all
+        /// seven; one that only runs them on Wednesdays lists the one.
+        /// Empty where the provider does not say, which means treat
+        /// every day as a processing day.
+        /// </summary>
+        public List<int> WaiverDays { get; set; } = new List<int>();
+
         public int EntryFee { get; set; }
 
         /// <summary>

@@ -1,3 +1,5 @@
+using System;
+
 namespace RotoMonsterExternalAPIs.Client.Models.Providers
 {
     /// <summary>
@@ -31,5 +33,12 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         public bool IsActive { get; set; }
 
         public bool IsIR { get; set; }
+
+        /// <summary>
+        /// For a player on waivers, the date they can be claimed. Null
+        /// on a rostered player, and on a waiver player we could not
+        /// find a drop for.
+        /// </summary>
+        public DateTime? WaiverDate { get; set; }
     }
 }

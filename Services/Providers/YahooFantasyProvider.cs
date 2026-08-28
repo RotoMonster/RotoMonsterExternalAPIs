@@ -47,6 +47,19 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         /// </summary>
         private const int WaiverMaxPlayers = 1000;
 
+        /// <summary>
+        /// How many recent transactions to read when dating the waiver wire.
+        /// Newest first, and a drop older than the waiver period has already
+        /// cleared, so there is no reason to walk the whole season.
+        /// </summary>
+        private const int TransactionCount = 200;
+
+        /// <summary>
+        /// What time waivers run. Yahoo does not say, and Ken's view is that a
+        /// fixed hour is fine for every league.
+        /// </summary>
+        private const int WaiverProcessingHour = 3;
+
         /// <summary>How many weeks of schedule to ask for at a time.</summary>
         private const int ScheduleWeekBlock = 10;
 
@@ -310,6 +323,20 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             settings.WaiverType = Value(settingsNode, "waiver_type");
             settings.WaiverRule = Value(settingsNode, "waiver_rule");
             settings.ContinuousWaivers = settings.WaiverRule == "continuous";
+            settings.WaiverPeriodDays = Int(Value(settingsNode, "waiver_time"));
+
+            // The days waivers run on, as a list of day numbers. Yahoo uses the
+            // same numbering as DayOfWeek, Sunday first.
+            var waiverDaysNode = settingsNode.Element(Ns + "waiver_days");
+            if (waiverDaysNode != null)
+            {
+                foreach (var dayNode in waiverDaysNode.Elements(Ns + "day"))
+                {
+                    int day;
+                    if (int.TryParse(dayNode.Value, out day) && day >= 0 && day <= 6)
+                        settings.WaiverDays.Add(day);
+                }
+            }
 
             var draftTime = Value(settingsNode, "draft_time");
             if (!string.IsNullOrEmpty(draftTime))
@@ -664,7 +691,122 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
 
                     start += added;
                 }
+
+                await ReadWaiverDates(userKey, seasonKey, leagueId, entry, result)
+                    .ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Fills in when each player on the wire can be claimed.
+        ///
+        /// The waiver list itself carries no dates, so the drop is found in the
+        /// league's transactions - a drop shows up as a player whose
+        /// transaction_data has a destination_type of waivers, with the
+        /// timestamp of when it happened.
+        ///
+        /// Only recent transactions are fetched. A player dropped longer ago
+        /// than the waiver period has already cleared, so their drop is no
+        /// longer the reason they are on the wire.
+        /// </summary>
+        private async Task ReadWaiverDates(
+            string userKey,
+            string seasonKey,
+            string leagueId,
+            ProviderLeagueData entry,
+            GetProviderLeagueDataResult result)
+        {
+            if (entry.WaiverPlayers == null || entry.WaiverPlayers.Count == 0)
+                return;
+
+            // Without the period there is nothing to add to the drop date.
+            if (entry.Settings == null || entry.Settings.WaiverPeriodDays <= 0)
+                return;
+
+            var url = BaseUrl + "league/" + seasonKey + ".l." + leagueId
+                      + "/transactions;count=" + TransactionCount.ToString(CultureInfo.InvariantCulture);
+
+            var response = await _client.GetAsync(userKey, url).ConfigureAwait(false);
+            result.RequestCount++;
+
+            XDocument doc;
+            if (!response.Success || !TryParse(response.Content, out doc))
+                return;
+
+            var droppedAt = ReadDropTimes(doc);
+
+            foreach (var player in entry.WaiverPlayers)
+            {
+                DateTime dropped;
+                if (!droppedAt.TryGetValue(player.PlayerId, out dropped))
+                    continue;
+
+                player.WaiverDate = ClaimableFrom(dropped, entry.Settings);
+            }
+        }
+
+        /// <summary>
+        /// When each player was dropped onto waivers, newest first. A player
+        /// dropped more than once keeps the most recent, which is the drop that
+        /// put them where they are now.
+        /// </summary>
+        private static Dictionary<string, DateTime> ReadDropTimes(XDocument doc)
+        {
+            var dropped = new Dictionary<string, DateTime>();
+
+            foreach (var transactionNode in doc.Descendants(Ns + "transaction"))
+            {
+                long epoch;
+                if (!long.TryParse(Value(transactionNode, "timestamp"), out epoch))
+                    continue;
+
+                var when = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(epoch);
+
+                foreach (var playerNode in transactionNode.Descendants(Ns + "player"))
+                {
+                    var dataNode = playerNode.Element(Ns + "transaction_data");
+                    if (dataNode == null) continue;
+
+                    // A drop onto waivers, rather than an add off them.
+                    if (Value(dataNode, "destination_type") != "waivers") continue;
+
+                    var playerId = Value(playerNode, "player_id");
+                    if (string.IsNullOrEmpty(playerId)) continue;
+
+                    DateTime existing;
+                    if (dropped.TryGetValue(playerId, out existing) && existing >= when)
+                        continue;
+
+                    dropped[playerId] = when;
+                }
+            }
+
+            return dropped;
+        }
+
+        /// <summary>
+        /// The drop date plus the waiver period, moved forward to the next day
+        /// waivers actually run on.
+        /// </summary>
+        private static DateTime ClaimableFrom(DateTime dropped, ProviderLeagueSettings settings)
+        {
+            var date = dropped.Date.AddDays(settings.WaiverPeriodDays);
+
+            // No days listed means every day is a processing day.
+            if (settings.WaiverDays != null && settings.WaiverDays.Count > 0
+                && settings.WaiverDays.Count < 7)
+            {
+                // Never more than a week away, so this cannot run long.
+                for (var i = 0; i < 7; i++)
+                {
+                    if (settings.WaiverDays.Contains((int)date.DayOfWeek))
+                        break;
+
+                    date = date.AddDays(1);
+                }
+            }
+
+            return date.AddHours(WaiverProcessingHour);
         }
 
         private static ProviderRosterPlayer ReadRosterPlayer(XElement playerNode)
