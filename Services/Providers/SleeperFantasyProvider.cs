@@ -328,6 +328,96 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         // Rosters
         // -------------------------------------------------------------------
 
+        public string TeamTitleFormat { get; set; } = "Team {0}";
+        public string BotTeamTitleFormat { get; set; } = "AI Bot Team {0}";
+
+        private async Task<List<ProviderTeam>> BuildTeamsFromDraft(
+            string draftId, string userKey, GetProviderLeagueDataResult result)
+        {
+            var teams = new List<ProviderTeam>();
+
+            var draftRes = await TryGet(BaseUrl + "draft/" + draftId).ConfigureAwait(false);
+            result.RequestCount++;
+            if (!draftRes.Ok) throw new Exception(draftRes.Error);
+
+            JsonElement draft;
+            if (!TryParse(draftRes.Body, out draft) || draft.ValueKind != JsonValueKind.Object)
+                throw new Exception("Sleeper returned a draft we could not read.");
+
+            var leagueId = Str(draft, "league_id");
+
+            if (!string.IsNullOrEmpty(leagueId))
+                return await BuildTeams(leagueId, userKey, result).ConfigureAwait(false);
+
+            var teamCount = 0;
+            var settings = Prop(draft, "settings");
+            if (settings.ValueKind == JsonValueKind.Object)
+            {
+                JsonElement teamsNode;
+                if (settings.TryGetProperty("teams", out teamsNode)
+                    && teamsNode.ValueKind == JsonValueKind.Number)
+                    teamCount = teamsNode.GetInt32();
+            }
+
+            var slotToUser = new Dictionary<int, string>();
+            var order = Prop(draft, "draft_order");
+
+            if (order.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var entry in order.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind != JsonValueKind.Number) continue;
+
+                    var slot = entry.Value.GetInt32();
+                    if (slot > 0 && !slotToUser.ContainsKey(slot))
+                        slotToUser[slot] = entry.Name;
+                }
+            }
+
+            if (teamCount <= 0)
+            {
+                foreach (var slot in slotToUser.Keys)
+                    if (slot > teamCount) teamCount = slot;
+            }
+
+            for (var slot = 1; slot <= teamCount; slot++)
+            {
+                string ownerId;
+                var hasUser = slotToUser.TryGetValue(slot, out ownerId)
+                    && !string.IsNullOrEmpty(ownerId);
+
+                var team = new ProviderTeam
+                {
+                    LeagueId = draftId,
+                    TeamId = hasUser ? ownerId : "slot-" + slot,
+                    Title = string.Format(BotTeamTitleFormat, slot),
+                    IsMyTeam = hasUser
+                        && string.Equals(ownerId, userKey, StringComparison.OrdinalIgnoreCase)
+                };
+
+                if (hasUser)
+                {
+                    team.Title = string.Format(TeamTitleFormat, slot);
+
+                    var userRes = await TryGet(BaseUrl + "user/" + ownerId).ConfigureAwait(false);
+                    result.RequestCount++;
+
+                    JsonElement user;
+                    if (userRes.Ok && TryParse(userRes.Body, out user)
+                        && user.ValueKind == JsonValueKind.Object)
+                    {
+                        var title = Str(Prop(user, "metadata"), "team_name");
+                        if (string.IsNullOrEmpty(title)) title = Str(user, "display_name");
+                        if (!string.IsNullOrEmpty(title)) team.Title = title;
+                    }
+                }
+
+                teams.Add(team);
+            }
+
+            return teams;
+        }
+
         private async Task<List<ProviderTeam>> BuildTeams(
             string leagueId, string userKey, GetProviderLeagueDataResult result)
         {
