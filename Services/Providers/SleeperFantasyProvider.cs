@@ -152,6 +152,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                     // so it is fetched once and used for both parts.
                     var league = default(JsonElement);
                     var haveLeague = false;
+                    var isMockDraft = false;
 
                     var needsLeague = (parts & ProviderLeagueDataParts.Settings) != 0
                                    || (parts & ProviderLeagueDataParts.Drafts) != 0;
@@ -163,24 +164,46 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
 
                         if (!res.Ok)
                         {
-                            entry.ErrorMessage = res.Error;
-                            continue;
-                        }
+                            var mockRes = await TryGet(BaseUrl + "draft/" + leagueId).ConfigureAwait(false);
+                            result.RequestCount++;
 
-                        if (!TryParse(res.Body, out league) || league.ValueKind != JsonValueKind.Object)
+                            if (!mockRes.Ok)
+                            {
+                                entry.ErrorMessage = res.Error;
+                                continue;
+                            }
+
+                            isMockDraft = true;
+                        }
+                        else
                         {
-                            entry.ErrorMessage = "Sleeper returned a league we could not read.";
-                            continue;
-                        }
+                            if (!TryParse(res.Body, out league) || league.ValueKind != JsonValueKind.Object)
+                            {
+                                entry.ErrorMessage = "Sleeper returned a league we could not read.";
+                                continue;
+                            }
 
-                        haveLeague = true;
+                            haveLeague = true;
+                        }
                     }
 
                     if ((parts & ProviderLeagueDataParts.Settings) != 0 && haveLeague)
                         entry.Settings = BuildSettings(leagueId, league);
 
                     if ((parts & ProviderLeagueDataParts.Rosters) != 0)
-                        entry.Teams = await BuildTeams(leagueId, userKey, result).ConfigureAwait(false);
+                    {
+                        entry.Teams = isMockDraft
+                            ? await BuildTeamsFromDraft(leagueId, userKey, result).ConfigureAwait(false)
+                            : await BuildTeams(leagueId, userKey, result).ConfigureAwait(false);
+                    }
+
+                    if ((parts & ProviderLeagueDataParts.Drafts) != 0 && isMockDraft)
+                    {
+                        entry.DraftPicks = await BuildDraftPicks(leagueId, leagueId, result).ConfigureAwait(false);
+
+                        if (entry.Settings != null)
+                            await ApplyDraftSettings(entry.Settings, leagueId, result).ConfigureAwait(false);
+                    }
 
                     if ((parts & ProviderLeagueDataParts.Drafts) != 0 && haveLeague)
                     {
