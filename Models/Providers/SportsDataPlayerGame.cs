@@ -18,6 +18,7 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
         public string GameId { get; set; }
         public string TeamCode { get; set; }
         public string Position { get; set; }
+        public string PlayerName { get; set; }
 
         public Dictionary<string, double> Stats { get; set; }
             = new Dictionary<string, double>();

@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using RotoMonsterExternalAPIs.Client.Models.Providers;
 using RotoMonsterExternalAPIs.Client.Models.Results;
@@ -63,5 +64,8 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         /// </summary>
         Task<GetSportsDataPlayerGamesResult> GetPlayerGamesAsync(
             SportsDataSport sport, string season, int week, string previousLastUpdated);
+
+        Task<GetSportsDataPlayerGamesResult> GetPlayerGamesByDateAsync(
+            SportsDataSport sport, string season, DateTime date, string previousLastUpdated);
     }
 }

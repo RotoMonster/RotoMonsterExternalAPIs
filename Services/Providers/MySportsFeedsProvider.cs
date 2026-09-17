@@ -281,12 +281,27 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             return result;
         }
 
-        public async Task<GetSportsDataPlayerGamesResult> GetPlayerGamesAsync(
+        public Task<GetSportsDataPlayerGamesResult> GetPlayerGamesAsync(
             SportsDataSport sport, string season, int week, string previousLastUpdated)
         {
             var path = SportPath(sport) + "/" + season + "/week/"
                 + week.ToString(CultureInfo.InvariantCulture) + "/player_gamelogs.json";
 
+            return ReadPlayerGamesAsync(sport, path, previousLastUpdated);
+        }
+
+        public Task<GetSportsDataPlayerGamesResult> GetPlayerGamesByDateAsync(
+            SportsDataSport sport, string season, DateTime date, string previousLastUpdated)
+        {
+            var path = SportPath(sport) + "/" + season + "/date/"
+                + date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "/player_gamelogs.json";
+
+            return ReadPlayerGamesAsync(sport, path, previousLastUpdated);
+        }
+
+        private async Task<GetSportsDataPlayerGamesResult> ReadPlayerGamesAsync(
+            SportsDataSport sport, string path, string previousLastUpdated)
+        {
             var fetch = await FetchAsync(path, previousLastUpdated).ConfigureAwait(false);
 
             if (!fetch.Success)
