@@ -145,21 +145,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             if (leagueIds == null || leagueIds.Count == 0 || parts == ProviderLeagueDataParts.None)
                 return result;
 
-            // One entry per league up front, so a league Yahoo drops out of a
-            // response still appears in the result rather than vanishing.
-            var byId = new Dictionary<string, ProviderLeagueData>();
-            foreach (var id in leagueIds)
-            {
-                if (string.IsNullOrEmpty(id) || byId.ContainsKey(id)) continue;
-
-                var data = new ProviderLeagueData { LeagueId = id };
-                if ((parts & ProviderLeagueDataParts.Settings) != 0) data.Settings = null;
-                if ((parts & ProviderLeagueDataParts.Rosters) != 0) data.Teams = new List<ProviderTeam>();
-                if ((parts & ProviderLeagueDataParts.Drafts) != 0) data.DraftPicks = new List<ProviderDraftPick>();
-
-                byId[id] = data;
-                result.Leagues.Add(data);
-            }
+            var byId = CreateEntries(leagueIds, parts, result);
 
             var wantsSettings = (parts & ProviderLeagueDataParts.Settings) != 0;
             var wantsDrafts = (parts & ProviderLeagueDataParts.Drafts) != 0;
@@ -174,12 +160,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 // though the caller asked for them as separate flags.
                 if (wantsSettings || wantsDrafts)
                 {
-                    var subResources = new List<string>();
-                    if (wantsSettings) subResources.Add("settings");
-                    if (wantsDrafts) subResources.Add("draftresults");
-
-                    var url = BaseUrl + "leagues;league_keys=" + Keys(seasonKey, chunk)
-                              + ";out=" + string.Join(",", subResources);
+                    var url = LeaguesUrl(seasonKey, chunk, wantsSettings, wantsDrafts);
 
                     var response = await _client.GetAsync(userKey, url).ConfigureAwait(false);
                     result.RequestCount++;
@@ -218,11 +199,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                     // made but does not apply yet - tomorrow in a daily league,
                     // next Monday in a weekly one. Ten days clears the next
                     // period from any day of the week.
-                    var rosterDate = DateTime.Today.AddDays(RosterDaysAhead);
-
-                    var url = BaseUrl + "leagues;league_keys=" + Keys(seasonKey, chunk)
-                              + "/teams/roster/players"
-                              + rosterDate.ToString(";'date='yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    var url = RostersUrl(seasonKey, chunk);
 
                     var response = await _client.GetAsync(userKey, url).ConfigureAwait(false);
                     result.RequestCount++;
@@ -250,6 +227,134 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             }
 
             return result;
+        }
+
+        public List<string> GetLeagueDataUrls(
+            string seasonKey,
+            IList<string> leagueIds,
+            ProviderLeagueDataParts parts)
+        {
+            var urls = new List<string>();
+
+            if (string.IsNullOrEmpty(seasonKey) || leagueIds == null) return urls;
+
+            var wantsSettings = (parts & ProviderLeagueDataParts.Settings) != 0;
+            var wantsDrafts = (parts & ProviderLeagueDataParts.Drafts) != 0;
+            var wantsRosters = (parts & ProviderLeagueDataParts.Rosters) != 0;
+
+            var ids = leagueIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+
+            foreach (var chunk in Chunk(ids, ChunkSize))
+            {
+                if (wantsSettings || wantsDrafts)
+                    urls.Add(LeaguesUrl(seasonKey, chunk, wantsSettings, wantsDrafts));
+
+                if (wantsRosters)
+                    urls.Add(RostersUrl(seasonKey, chunk));
+            }
+
+            return urls;
+        }
+
+        public GetProviderLeagueDataResult ParseLeagueData(
+            IList<string> leagueIds,
+            ProviderLeagueDataParts parts,
+            string xml)
+        {
+            return ParseLeagueData(leagueIds, parts, new List<string> { xml });
+        }
+
+        public GetProviderLeagueDataResult ParseLeagueData(
+            IList<string> leagueIds,
+            ProviderLeagueDataParts parts,
+            IList<string> xmlResponses)
+        {
+            var supported = parts & UrlParts;
+            var result = new GetProviderLeagueDataResult { Success = true, PartsReturned = supported };
+
+            if (leagueIds == null || leagueIds.Count == 0 || supported == ProviderLeagueDataParts.None)
+                return result;
+
+            var byId = CreateEntries(leagueIds, supported, result);
+
+            var wantsSettings = (supported & ProviderLeagueDataParts.Settings) != 0;
+            var wantsDrafts = (supported & ProviderLeagueDataParts.Drafts) != 0;
+            var wantsRosters = (supported & ProviderLeagueDataParts.Rosters) != 0;
+
+            if (xmlResponses == null) xmlResponses = new List<string>();
+
+            foreach (var xml in xmlResponses)
+            {
+                XDocument doc;
+                if (!TryParse(xml, out doc))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "Yahoo returned a response we could not read.";
+                    continue;
+                }
+
+                if (doc.Descendants(Ns + "teams").Any())
+                {
+                    if (wantsRosters) ReadRosters(doc, byId);
+                }
+                else if (wantsSettings || wantsDrafts)
+                {
+                    ReadLeagueNodes(doc, byId, wantsSettings, wantsDrafts);
+                }
+            }
+
+            foreach (var data in byId.Values)
+            {
+                if (data.HasError) continue;
+
+                if (wantsSettings && data.Settings == null)
+                    data.ErrorMessage = "Yahoo did not return this league.";
+            }
+
+            return result;
+        }
+
+        private const ProviderLeagueDataParts UrlParts =
+            ProviderLeagueDataParts.Settings | ProviderLeagueDataParts.Rosters | ProviderLeagueDataParts.Drafts;
+
+        private static Dictionary<string, ProviderLeagueData> CreateEntries(
+            IList<string> leagueIds,
+            ProviderLeagueDataParts parts,
+            GetProviderLeagueDataResult result)
+        {
+            var byId = new Dictionary<string, ProviderLeagueData>();
+            foreach (var id in leagueIds)
+            {
+                if (string.IsNullOrEmpty(id) || byId.ContainsKey(id)) continue;
+
+                var data = new ProviderLeagueData { LeagueId = id };
+                if ((parts & ProviderLeagueDataParts.Rosters) != 0) data.Teams = new List<ProviderTeam>();
+                if ((parts & ProviderLeagueDataParts.Drafts) != 0) data.DraftPicks = new List<ProviderDraftPick>();
+
+                byId[id] = data;
+                result.Leagues.Add(data);
+            }
+
+            return byId;
+        }
+
+        private static string LeaguesUrl(string seasonKey, IEnumerable<string> leagueIds, bool settings, bool drafts)
+        {
+            var subResources = new List<string>();
+            if (settings) subResources.Add("settings");
+            if (drafts) subResources.Add("draftresults");
+
+            return BaseUrl + "leagues;league_keys=" + Keys(seasonKey, leagueIds)
+                   + ";out=" + string.Join(",", subResources);
+        }
+
+        private static string RostersUrl(string seasonKey, IEnumerable<string> leagueIds)
+        {
+            var rosterDate = DateTime.Today.AddDays(RosterDaysAhead);
+
+            return BaseUrl + "leagues;league_keys=" + Keys(seasonKey, leagueIds)
+                   + "/teams/roster/players"
+                   + rosterDate.ToString(";'date='yyyy-MM-dd", CultureInfo.InvariantCulture);
         }
 
         // -------------------------------------------------------------------
