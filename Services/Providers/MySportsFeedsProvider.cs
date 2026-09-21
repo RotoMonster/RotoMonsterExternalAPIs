@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -111,6 +112,9 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                         {
                             game.HomeScore = ReadNullableInt(score, "homeScoreTotal");
                             game.AwayScore = ReadNullableInt(score, "awayScoreTotal");
+                            game.CurrentPeriod = ReadNullableInt(score, "currentQuarter");
+                            game.PeriodSecondsRemaining = ReadNullableInt(score, "currentQuarterSecondsRemaining");
+                            game.Intermission = ReadNullableInt(score, "currentIntermission");
                         }
 
                         var status = (game.Status ?? "").ToUpperInvariant();
@@ -290,19 +294,93 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
             return ReadPlayerGamesAsync(sport, path, previousLastUpdated);
         }
 
+        public string CacheFolder { get; set; }
+
         public Task<GetSportsDataPlayerGamesResult> GetPlayerGamesByDateAsync(
             SportsDataSport sport, string season, DateTime date, string previousLastUpdated)
+        {
+            return GetPlayerGamesByDateAsync(sport, season, date, previousLastUpdated, false);
+        }
+
+        public Task<GetSportsDataPlayerGamesResult> GetPlayerGamesByDateAsync(
+            SportsDataSport sport, string season, DateTime date, string previousLastUpdated, bool useStored)
         {
             var path = SportPath(sport) + "/" + season + "/date/"
                 + date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "/player_gamelogs.json";
 
-            return ReadPlayerGamesAsync(sport, path, previousLastUpdated);
+            return ReadPlayerGamesAsync(sport, path, previousLastUpdated, useStored);
+        }
+
+        public bool HasStored(SportsDataSport sport, string season, DateTime date)
+        {
+            var path = SportPath(sport) + "/" + season + "/date/"
+                + date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "/player_gamelogs.json";
+            var file = StoredFile(path);
+            return file != null && System.IO.File.Exists(file);
+        }
+
+        private string StoredFile(string path)
+        {
+            if (string.IsNullOrWhiteSpace(CacheFolder)) return null;
+            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            return System.IO.Path.Combine(new[] { CacheFolder }.Concat(parts).ToArray());
+        }
+
+        private string ReadStored(string path)
+        {
+            var file = StoredFile(path);
+            if (file == null || !System.IO.File.Exists(file)) return null;
+            try
+            {
+                return System.IO.File.ReadAllText(file);
+            }
+            catch (System.IO.IOException)
+            {
+                return null;
+            }
+        }
+
+        private void Store(string path, string body)
+        {
+            var file = StoredFile(path);
+            if (file == null || string.IsNullOrWhiteSpace(body)) return;
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));
+                var temp = file + ".tmp";
+                System.IO.File.WriteAllText(temp, body);
+                if (System.IO.File.Exists(file)) System.IO.File.Delete(file);
+                System.IO.File.Move(temp, file);
+            }
+            catch (System.IO.IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        private Task<GetSportsDataPlayerGamesResult> ReadPlayerGamesAsync(
+            SportsDataSport sport, string path, string previousLastUpdated)
+        {
+            return ReadPlayerGamesAsync(sport, path, previousLastUpdated, false);
         }
 
         private async Task<GetSportsDataPlayerGamesResult> ReadPlayerGamesAsync(
-            SportsDataSport sport, string path, string previousLastUpdated)
+            SportsDataSport sport, string path, string previousLastUpdated, bool useStored)
         {
-            var fetch = await FetchAsync(path, previousLastUpdated).ConfigureAwait(false);
+            FetchResult fetch;
+            var stored = useStored ? ReadStored(path) : null;
+
+            if (stored != null)
+            {
+                fetch = new FetchResult { Success = true, Body = stored, LastUpdatedOn = ReadLastUpdated(stored) };
+            }
+            else
+            {
+                fetch = await FetchAsync(path, previousLastUpdated).ConfigureAwait(false);
+                if (fetch.Success && !fetch.NotModified) Store(path, fetch.Body);
+            }
 
             if (!fetch.Success)
                 return new GetSportsDataPlayerGamesResult

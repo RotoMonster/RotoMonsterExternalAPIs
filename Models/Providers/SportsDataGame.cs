@@ -21,5 +21,8 @@ namespace RotoMonsterExternalAPIs.Client.Models.Providers
 
         public bool IsFinished { get; set; }
         public bool IsInProgress { get; set; }
+        public int? CurrentPeriod { get; set; }
+        public int? PeriodSecondsRemaining { get; set; }
+        public int? Intermission { get; set; }
     }
 }
