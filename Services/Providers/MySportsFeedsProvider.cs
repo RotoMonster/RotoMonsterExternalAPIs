@@ -52,12 +52,22 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 || sport == SportsDataSport.NHL;
         }
 
-        public async Task<GetSportsDataGamesResult> GetGamesAsync(
+        public Task<GetSportsDataGamesResult> GetGamesAsync(
             SportsDataSport sport, string season, string previousLastUpdated)
         {
-            var fetch = await FetchAsync(
-                SportPath(sport) + "/" + season + "/games.json", previousLastUpdated)
-                .ConfigureAwait(false);
+            return GetGamesFromPathAsync(SportPath(sport) + "/" + season + "/games.json", previousLastUpdated);
+        }
+
+        public Task<GetSportsDataGamesResult> GetGamesByDateAsync(
+            SportsDataSport sport, string season, DateTime date)
+        {
+            return GetGamesFromPathAsync(
+                SportPath(sport) + "/" + season + "/date/" + date.ToString("yyyyMMdd") + "/games.json", null);
+        }
+
+        private async Task<GetSportsDataGamesResult> GetGamesFromPathAsync(string path, string previousLastUpdated)
+        {
+            var fetch = await FetchAsync(path, previousLastUpdated).ConfigureAwait(false);
 
             if (!fetch.Success)
                 return new GetSportsDataGamesResult
@@ -71,6 +81,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 {
                     Success = true,
                     NotModified = true,
+                    NoLiveAccess = fetch.NoLiveAccess,
                     LastUpdatedOn = fetch.LastUpdatedOn
                 };
 
@@ -153,6 +164,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 {
                     Success = true,
                     NotModified = true,
+                    NoLiveAccess = fetch.NoLiveAccess,
                     LastUpdatedOn = fetch.LastUpdatedOn
                 };
 
@@ -213,6 +225,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 {
                     Success = true,
                     NotModified = true,
+                    NoLiveAccess = fetch.NoLiveAccess,
                     LastUpdatedOn = fetch.LastUpdatedOn
                 };
 
@@ -394,6 +407,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                 {
                     Success = true,
                     NotModified = true,
+                    NoLiveAccess = fetch.NoLiveAccess,
                     LastUpdatedOn = fetch.LastUpdatedOn
                 };
 
@@ -487,6 +501,7 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
         {
             public bool Success;
             public bool NotModified;
+            public bool NoLiveAccess;
             public string Body;
             public string LastUpdatedOn;
             public string ErrorMessage;
@@ -510,6 +525,9 @@ namespace RotoMonsterExternalAPIs.Client.Services.Providers
                     {
                         if (response.StatusCode == HttpStatusCode.NotModified)
                             return new FetchResult { Success = true, NotModified = true };
+
+                        if (response.StatusCode == HttpStatusCode.NoContent)
+                            return new FetchResult { Success = true, NotModified = true, NoLiveAccess = true };
 
                         var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 

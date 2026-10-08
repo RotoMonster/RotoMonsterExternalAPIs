@@ -7,6 +7,7 @@ namespace RotoMonsterExternalAPIs.Client.Models.Results
     public abstract class BaseResult
     {
         public bool Success { get; set; }
+        public bool NoLiveAccess { get; set; }
         public string ErrorMessage { get; set; }
 
         public static T Failure<T>(string errorMessage) where T : BaseResult, new()
